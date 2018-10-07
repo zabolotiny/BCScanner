@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.requires_arc = true
   s.framework    = 'AVFoundation', 'UIKit'
   s.source       = { :git => "https://github.com/michaelochs/BCScanner.git", :tag => s.version.to_s }
-  s.source_files = 'BCScanner', 'BCScanner/**/*.{h,m}'
+  s.source_files = 'BCScanner', 'BCScanner/**/*.{h,m}',  'BCScanner/res'
   s.public_header_files = 'BCScanner/*.h'
   s.preserve_path = 'LICENSE', 'VERSION', 'CREDITS.md'
 end

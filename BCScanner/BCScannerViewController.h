@@ -165,4 +165,10 @@ FOUNDATION_EXTERN NSString *const BCScannerDataMatrixCode; /// The data matrix c
  */
 - (UIImage *)scannerHUDImage:(BCScannerViewController *)scanner;
 
+
+/**
+ This method is called when done button is pushed.
+ **/
+- (void) scanControllerDidCancel: (BCScannerViewController*) scanner;
+
 @end

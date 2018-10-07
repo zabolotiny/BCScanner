@@ -72,6 +72,11 @@ NSString *const BCScannerDataMatrixCode = @"BCScannerDataMatrixCode";
 @property (nonatomic, strong, readwrite) dispatch_queue_t metadataQueue;
 
 @property (nonatomic, strong) UIBarButtonItem *torchButton;
+@property (nonatomic, strong) UIView *overlay;
+@property (nonatomic, strong) UIView *boxView;
+@property (nonatomic, strong) CALayer *boxLayer;
+@property (nonatomic, strong) UIToolbar *toolbar;
+@property (nonatomic, strong) BCScannerHelpController *help;
 
 @end
 
@@ -195,6 +200,58 @@ NSString *const BCScannerDataMatrixCode = @"BCScannerDataMatrixCode";
 	return self;
 }
 
+- (void) initOverlay
+{
+    CGRect bounds = self.view.bounds;
+    self.overlay = [[UIView alloc] initWithFrame: bounds];
+    self.overlay.backgroundColor = [UIColor clearColor];
+    
+    CGRect r = bounds;
+    r.size.height -= 54;
+    self.boxView = [[UIView alloc] initWithFrame: r];
+    
+    self.boxLayer = [CALayer new];
+    self.boxLayer.frame = r;
+    self.boxLayer.borderWidth = 1;
+    self.boxLayer.borderColor = [UIColor greenColor].CGColor;
+    [self.boxView.layer addSublayer: self.boxLayer];
+    
+    self.toolbar = [UIToolbar new];
+    self.toolbar.barStyle = UIBarStyleBlackOpaque;
+    r.origin.y = r.size.height;
+    r.size.height = 54;
+    self.toolbar.frame = r;
+    
+    UIBarButtonItem *cancelBtn = [[UIBarButtonItem alloc]
+                 initWithBarButtonSystemItem: UIBarButtonSystemItemCancel
+                 target: self
+                 action: @selector(cancel)];
+    cancelBtn.width = r.size.width / 4 - 16;
+    
+    UIBarButtonItem *space[3];
+    for(int i = 0; i < 2; i++)
+        space[i] = [[UIBarButtonItem alloc]
+                    initWithBarButtonSystemItem:
+                    UIBarButtonSystemItemFlexibleSpace
+                    target: nil
+                    action: nil];
+    
+    space[2] = [[UIBarButtonItem alloc]
+                initWithBarButtonSystemItem:
+                UIBarButtonSystemItemFixedSpace
+                target: nil
+                action: nil];
+    space[2].width = r.size.width / 4 - 16;
+    
+    UIButton *infoBtn = [UIButton buttonWithType: UIButtonTypeInfoLight];
+    r.origin.x = r.size.width - 54;
+    r.size.width = 54;
+    infoBtn.frame = r;
+    [infoBtn addTarget: self
+                action: @selector(info)
+      forControlEvents: UIControlEventTouchUpInside];
+}
+
 - (void)dealloc
 {
 	[self teardownCaptureSession];
@@ -289,6 +346,7 @@ NSString *const BCScannerDataMatrixCode = @"BCScannerDataMatrixCode";
 {
 	[super viewWillAppear:animated];
 	
+	self.previewView.videoOrientation = (AVCaptureVideoOrientation)[[UIApplication sharedApplication] statusBarOrientation]; // The enum defs for UIInterfaceOrientation and AVCaptureVideoOrientation are the same!
 	[self.session startRunning];
 }
 
@@ -392,6 +450,33 @@ NSString *const BCScannerDataMatrixCode = @"BCScannerDataMatrixCode";
 
 
 #pragma mark - actions
+- (void) info
+{
+    if(self.help) {
+        [self.help.view removeFromSuperview];
+    }
+    self.help = [[BCScannerHelpController alloc]
+            init];
+    self.help.delegate = (id<BCScannerHelpControllerDelegate>)self;
+    [self presentModalViewController: self.help
+                            animated: YES];
+}
+
+- (void) scanControllerDidCancel: (BCScannerViewController*) scanner
+{
+    SEL cb = @selector(scanControllerDidCancel:);
+    if([self.delegate respondsToSelector: cb])
+        [self.delegate scanControllerDidCancel: self];
+    else
+        [self dismissModalViewControllerAnimated: YES];
+}
+
+- (void) cancel
+{
+    [self performSelector: @selector(imagePickerControllerDidCancel:)
+               withObject: self
+               afterDelay: 0.1];
+}
 
 - (IBAction)focusAndExpose:(id)sender
 {
