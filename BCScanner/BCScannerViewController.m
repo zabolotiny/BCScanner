@@ -67,11 +67,14 @@ NSString *const BCScannerDataMatrixCode = @"BCScannerDataMatrixCode";
 @property (nonatomic, weak, readwrite) UIImageView *hudImageView;
 
 @property (nonatomic, strong, readwrite) AVCaptureSession *session;
+@property (nonatomic, strong, readwrite) AVCaptureDevice *camera;
 @property (nonatomic, weak, readonly) BCVideoPreviewView *previewView;
 @property (nonatomic, weak, readwrite) AVCaptureMetadataOutput *metadataOutput;
 @property (nonatomic, strong, readwrite) dispatch_queue_t metadataQueue;
 
 @property (nonatomic, strong) UIBarButtonItem *torchButton;
+@property (nonatomic, assign) CGFloat lastZoomFactor;
+@property (nonatomic, strong) UISlider* zoomSlider;
 
 @end
 
@@ -218,7 +221,8 @@ NSString *const BCScannerDataMatrixCode = @"BCScannerDataMatrixCode";
 - (void)configureCaptureSession
 {
 	AVCaptureSession *session = [[AVCaptureSession alloc] init];
-	
+    session.sessionPreset = AVCaptureSessionPresetHigh;
+
 	NSError *inputError = nil;
 	AVCaptureDevice *camera = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
 	AVCaptureDeviceInput *cameraInput = [[AVCaptureDeviceInput alloc] initWithDevice:camera error:&inputError];
@@ -243,6 +247,7 @@ NSString *const BCScannerDataMatrixCode = @"BCScannerDataMatrixCode";
 		NSLog(@"[BCScanner] could not create metadata output!");
 	}
 	
+    _camera = camera;
 	_session = session;
 }
 
@@ -283,6 +288,8 @@ NSString *const BCScannerDataMatrixCode = @"BCScannerDataMatrixCode";
 	UITapGestureRecognizer *tapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(focusAndExpose:)];
 	[self.previewView addGestureRecognizer:tapRecognizer];
 	self.focusAndExposeGestureRecognizer = tapRecognizer;
+    [self setupPinchGesture];
+    [self setupSlider];
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -390,7 +397,74 @@ NSString *const BCScannerDataMatrixCode = @"BCScannerDataMatrixCode";
 	self.metadataOutput.rectOfInterest = rectOfInterest;
 }
 
+- (void)setupPinchGesture {
+    self.lastZoomFactor = 1.0;
+    UIPinchGestureRecognizer *pinchRecognizer = [[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(handlePinch:)];
+    [self.view addGestureRecognizer:pinchRecognizer];
+}
 
+- (void)setupSlider {
+
+    CGSize thumbSize = CGSizeMake(20, 20);
+    UIGraphicsBeginImageContextWithOptions(thumbSize, NO, 0.0);
+    [[UIColor whiteColor] setFill];
+    UIBezierPath *path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(0, 0, thumbSize.width, thumbSize.height)];
+    [path fill];
+    UIImage *thumbImage = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+
+    self.zoomSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, self.view.bounds.size.height - 60, self.view.bounds.size.width - 40, 40)];
+    self.zoomSlider.minimumValue = 1.0;
+    self.zoomSlider.maximumValue = _camera.activeFormat.videoMaxZoomFactor;
+    self.zoomSlider.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.zoomSlider addTarget:self action:@selector(sliderValueChanged:) forControlEvents:UIControlEventValueChanged];
+    [self.zoomSlider setThumbImage:thumbImage forState:UIControlStateNormal];
+
+    [self.zoomSlider setMinimumTrackTintColor:[UIColor whiteColor]];
+    [self.zoomSlider setMaximumTrackTintColor:[UIColor whiteColor]];
+
+    // To make the track thinner
+    UIImage *transparentImage = [self imageWithColor:[UIColor clearColor] andSize:CGSizeMake(1, 1)];
+    [self.zoomSlider setMaximumTrackImage:transparentImage forState:UIControlStateNormal];
+    [self.zoomSlider setMinimumTrackImage:transparentImage forState:UIControlStateNormal];
+
+
+    [self.view addSubview:self.zoomSlider];
+
+    // Pin the slider to the bottom with a margin of 20
+    NSLayoutConstraint *bottomConstraint = [NSLayoutConstraint constraintWithItem:self.zoomSlider attribute:NSLayoutAttributeBottom relatedBy:NSLayoutRelationEqual toItem:self.view.safeAreaLayoutGuide attribute:NSLayoutAttributeBottom multiplier:1.0 constant:-100];
+
+    // Pin the slider to the left with a margin of 20
+    NSLayoutConstraint *leftConstraint = [NSLayoutConstraint constraintWithItem:self.zoomSlider attribute:NSLayoutAttributeLeading relatedBy:NSLayoutRelationEqual toItem:self.view.safeAreaLayoutGuide attribute:NSLayoutAttributeLeading multiplier:1.0 constant:30];
+
+    // Pin the slider to the right with a margin of 20
+    NSLayoutConstraint *rightConstraint = [NSLayoutConstraint constraintWithItem:self.zoomSlider attribute:NSLayoutAttributeTrailing relatedBy:NSLayoutRelationEqual toItem:self.view.safeAreaLayoutGuide attribute:NSLayoutAttributeTrailing multiplier:1.0 constant:-30];
+
+    // Activate the constraints
+    [NSLayoutConstraint activateConstraints:@[bottomConstraint, leftConstraint, rightConstraint]];
+
+    [self addSliderBackgroundLine];
+}
+
+- (void)addSliderBackgroundLine {
+    UIView *sliderLine = [[UIView alloc] init];
+    sliderLine.backgroundColor = [UIColor whiteColor];
+    sliderLine.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view insertSubview:sliderLine belowSubview:self.zoomSlider];
+    [sliderLine.centerXAnchor constraintEqualToAnchor:self.zoomSlider.centerXAnchor].active = YES;
+    [sliderLine.centerYAnchor constraintEqualToAnchor:self.zoomSlider.centerYAnchor].active = YES;
+    [sliderLine.heightAnchor constraintEqualToConstant:2].active = YES; // Adjust for thickness
+    [sliderLine.widthAnchor constraintEqualToAnchor:self.zoomSlider.widthAnchor].active = YES;
+}
+
+- (UIImage *)imageWithColor:(UIColor *)color andSize:(CGSize)size {
+    UIGraphicsBeginImageContextWithOptions(size, NO, 0);
+    [color setFill];
+    UIRectFill(CGRectMake(0, 0, size.width, size.height));
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return image;
+}
 
 #pragma mark - actions
 
@@ -408,6 +482,38 @@ NSString *const BCScannerDataMatrixCode = @"BCScannerDataMatrixCode";
 	self.torchEnabled = (self.isTorchModeAvailable && !self.isTorchEnabled);
 }
 
+- (void)sliderValueChanged:(UISlider *)slider {
+    CGFloat desiredZoomFactor = slider.value;
+
+    NSError *error = nil;
+    if ([_camera lockForConfiguration:&error]) {
+        _camera.videoZoomFactor = desiredZoomFactor;
+        self.lastZoomFactor = desiredZoomFactor;
+        [_camera unlockForConfiguration];
+    }
+}
+
+- (void)handlePinch:(UIPinchGestureRecognizer *)pinch {
+    CGFloat maxZoomFactor = _camera.activeFormat.videoMaxZoomFactor;
+    CGFloat minZoomFactor = 1.0;
+
+    if (pinch.state == UIGestureRecognizerStateBegan) {
+        // When the pinch begins, store the current zoom factor
+        self.lastZoomFactor = _camera.videoZoomFactor;
+    } else if (pinch.state == UIGestureRecognizerStateChanged) {
+        NSError *error = nil;
+
+        // Calculate a desired zoom factor based on the pinch gesture's scale and the last known zoom factor
+        CGFloat desiredZoomFactor = self.lastZoomFactor * pinch.scale;
+        desiredZoomFactor = MIN(MAX(desiredZoomFactor, minZoomFactor), maxZoomFactor);
+
+        if ([_camera lockForConfiguration:&error]) {
+            _camera.videoZoomFactor = desiredZoomFactor;
+            [_camera unlockForConfiguration];
+        }
+        self.zoomSlider.value = _camera.videoZoomFactor;
+    }
+}
 
 
 #pragma mark - torch mode
